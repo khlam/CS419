@@ -5,6 +5,8 @@
 
 ## Enviornment
 Developed using Ubuntu 18.04
+
+
 Docker image: https://hub.docker.com/r/cloudera/quickstart/
 
 
