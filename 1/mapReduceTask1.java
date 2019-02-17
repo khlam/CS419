@@ -11,7 +11,7 @@ import org.apache.hadoop.mapreduce.Reducer;
 import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 
-public class assignment1 {
+public class mapReduceTask1 {
     public static void main(String[] args) {
         System.out.println("Hello World");
     }

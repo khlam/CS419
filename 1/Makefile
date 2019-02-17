@@ -2,9 +2,9 @@ default: run
 
 HADOOP_CLASSPATH := $(shell hadoop classpath)
 
-run: assignment1.java
-	javac -cp $(HADOOP_CLASSPATH) assignment1.java
-	java assignment1
+run: mapReduceTask1.java
+	javac -cp $(HADOOP_CLASSPATH) mapReduceTask1.java
+	java mapReduceTask1
 
 clean:
 	rm -f *.class
