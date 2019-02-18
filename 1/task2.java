@@ -50,7 +50,7 @@ public class task2 {
 
     public static void main(String[] args) throws Exception {
         Job job = new Job();
-        job.setJobName("TASK 1: Map-Reduce Word Count");
+        job.setJobName("TASK 2: BeaverMart Tuples");
         job.setJarByClass(task2.class);
         job.setMapperClass(WCMapper.class);
         job.setReducerClass(WCReducer.class);
