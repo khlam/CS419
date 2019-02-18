@@ -50,7 +50,6 @@ public class task1 {
 
     public static void main(String[] args) throws Exception {
         Job job = new Job();
-        job.setNumReduceTasks(1);
         job.setJobName("TASK 1: Map-Reduce Word Count");
         job.setJarByClass(task1.class);
         job.setMapperClass(WCMapper.class);
