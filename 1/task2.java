@@ -1,5 +1,6 @@
 import java.io.IOException;
 import java.util.StringTokenizer;
+import java.util.Arrays;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
@@ -15,6 +16,7 @@ public class task2 {
     public static class WCMapper extends Mapper<Object, Text, Text, IntWritable> {
         public void map(Object key, Text value, Context context) throws IOException, InterruptedException {
             String[] lists = value.toString().split(",");
+            Arrays.sort(lists);
             for (int i = 0; i < lists.length; i++) {
                 for (int j = i+1; j < lists.length; j++) {
                     context.write(new Text( "(" + lists[i].replaceAll("^\\s+", "") + ", " + lists[j].replaceAll("^\\s+", "") + ")"), new IntWritable(1));
