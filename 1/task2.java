@@ -14,34 +14,32 @@ import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 public class task2 {
     public static class WCMapper extends Mapper<Object, Text, Text, IntWritable> {
         public void map(Object key, Text value, Context context) throws IOException, InterruptedException {
-            StringTokenizer i = new StringTokenizer(value.toString());
-            while (i.hasMoreTokens()) {
-                context.write(new Text(i.nextToken().replaceAll("[^A-Za-z]+", "").toLowerCase()), new IntWritable(1));
+            String[] lists = value.toString().split(",");
+            for (int i = 0; i < lists.length; i++) {
+                for (int j = i+1; j < lists.length; j++) {
+                    context.write(new Text( "(" + lists[i].replaceAll("^\\s+", "") + ", " + lists[j].replaceAll("^\\s+", "") + ")"), new IntWritable(1));
+                }
             }
         }
     }
 
     public static class WCReducer extends Reducer<Text,IntWritable,Text,IntWritable> {
         private int totalUnique;
-        private int totalWords;
         
         @Override
         protected void setup(Context context) {
             totalUnique = 0;
-            totalWords = 0;
         }
     
         @Override
         protected void cleanup(Context context) throws IOException, InterruptedException {
-            context.write(new Text("Unique Words"), new IntWritable(totalUnique));
-            context.write(new Text("Total Words"), new IntWritable(totalWords));
+            context.write(new Text("Total Unique Pairs"), new IntWritable(totalUnique));
         }
 
         public void reduce(Text word, Iterable<IntWritable> values, Context context) throws IOException, InterruptedException {
             int sum = 0;
             for (IntWritable val : values) {
                 sum += val.get();
-                totalWords++;
             }
             totalUnique++;
             context.write(word, new IntWritable(sum));

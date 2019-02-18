@@ -38,6 +38,6 @@ runtask2: task2
 
 # Clean
 clean:
-	hadoop fs -rm -f -r /cs419
 	rm -f *.jar
 	rm -f *.class
+	hadoop fs -rm -f -r /cs419
