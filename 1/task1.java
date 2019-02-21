@@ -44,7 +44,7 @@ public class task1 {
                 totalWords++;
             }
             totalUnique++;
-            context.write(word, new IntWritable(sum));
+            context.write( new Text(totalUnique + " " + word), new IntWritable(sum));
         }
     }
 
