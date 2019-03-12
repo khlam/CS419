@@ -1,7 +1,6 @@
 ## Assignment 2 - Raft Leader Election with Go
 TBD
 
-
 ## Enviornment
 Docker image: https://hub.docker.com/_/golang
 
