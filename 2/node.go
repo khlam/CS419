@@ -20,8 +20,7 @@ var votesForMe = 0
 var votedFor string = ""
 var totalAlive = 0
 
-var timer *time.Timer
-
+var timer *time.Timer = time.NewTimer(time.Duration(30 + rand.Intn(60-30+1)) * time.Second)
 
 // Removes item at index i from an array and returns the array
 func remove(s []string, i int) []string {
@@ -93,7 +92,7 @@ func handleMessage(message string, conn net.Conn) {
 		}
 
 		if ((directive == "RequestVote") && (votedFor == "") && (term == msgTerm)) {
-			timer.Stop()
+			resetElectionTimeout()
 			votedFor = id
 			conn, _ := net.Dial("tcp", "localhost:"+id)
 			fmt.Printf("\tI voted for %s\n", id)
@@ -107,6 +106,10 @@ func handleMessage(message string, conn net.Conn) {
 		if ((directive == "VoteForX") && (msgTerm == term)) {
 			fmt.Printf("\t%s Voted for me.\n", id)
 			votesForMe = votesForMe + 1
+			if (len(memberList) == votesForMe) {
+				state = "leader"
+				fmt.Printf("%d/%d nodes voted for me. I am the leader.\n", votesForMe, totalAlive)
+			}
 		}
 	}
 }
@@ -115,7 +118,7 @@ func resetElectionTimeout() (int){
 	rand.Seed(time.Now().UnixNano())
 	var electionTimeout int = 15 + rand.Intn(30-15+1)
 	fmt.Println("\tElection timeout reset to ",electionTimeout, " seconds.")
-	timer = time.NewTimer(time.Duration(electionTimeout) * time.Second)
+	timer.Reset(time.Duration(electionTimeout) * time.Second)
 	return electionTimeout
 }
 
@@ -135,13 +138,12 @@ func followerRoutine() {
 func candidateRoutine() {
 	for true {
 		if (state == "candidate") {
+			resetElectionTimeout()
 			totalAlive = 1 // I am alive
-			votesForMe = 1 // vote for myself
-			votedFor = myPort
+			votesForMe = 1 // I vote for myself
+			votedFor = myPort // I vote for myself
 			term = term + 1
 			fmt.Printf("\tVoting for myself.\n")
-			var electionDuration time.Duration = time.Duration(15 + rand.Intn(40-25+1)) * time.Second
-			var electiontimer = time.NewTimer(electionDuration)
 			for _, port := range memberList {
 				var addr = "localhost:" + port
 				conn, err := net.DialTimeout("tcp", addr, 1 * time.Second)
@@ -155,18 +157,12 @@ func candidateRoutine() {
 					conn.Close()
 				}
 			}
-			if (len(memberList) == votesForMe) {
-				electiontimer.Stop()
-				state = "leader"
-				term = term + 1
-				fmt.Printf("%d/%d nodes voted for me. I am the leader.\n", votesForMe, totalAlive)
-			}
+
 			select {
-				case <-electiontimer.C:
+				case <-timer.C:
 					fmt.Println("Election timer expired.")
 					if ((votesForMe >= totalAlive) && (totalAlive != 0)) {
 						state = "leader"
-						term = term + 1
 						fmt.Printf("%d/%d nodes voted for me. I am the leader.\n", votesForMe, totalAlive)
 					}else {
 						term = term + 1
@@ -185,14 +181,16 @@ func leaderHeartbeat(){
 		if (state == "leader") {
 			timer.Stop()
 			for true{
-				var electionTimeout time.Duration = time.Duration(rand.Intn(1)+3) * time.Second
+				var heartbeatPause time.Duration = time.Duration(rand.Intn(1)+3) * time.Second
 				//fmt.Println("\tTimeout ",electionTimeout)
-				time.Sleep(electionTimeout)
+				time.Sleep(heartbeatPause)
 				for _, port := range memberList {
 					var addr = "localhost:" + port
 					conn, err := net.DialTimeout("tcp", addr, 1 * time.Second)
 		
-					if err == nil {
+					if err != nil {
+						//fmt.Printf("\t%s not responding\n", port)
+					}else {
 						fmt.Printf("\tSending heartbeat to %s\n", port)
 						conn.SetWriteDeadline(time.Now().Add(1 * time.Second))
 						conn.Write([]byte("leaderHeartbeat|" + strconv.Itoa(term) + "|"+ myPort))
