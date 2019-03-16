@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-var myPort string
+var myPort string = ""
 var memberList []string
 
 var state string = "follower"
@@ -108,7 +108,7 @@ func handleMessage(message string, conn net.Conn) {
 				state = "leader"
 			}
 		}
-		if ((directive == "leaderHeartbeat") && (term < msgTerm)){
+		if ((directive == "leaderHeartbeat") && (term == msgTerm)){
 			state = "follower"
 			term = msgTerm
 			votesForMe = 0
@@ -219,6 +219,12 @@ func leaderHeartbeat(){
 
 func main() {
 	myPort, memberList = determineMembership()
+
+	if (myPort == "") {
+		fmt.Printf("All ports in memberList.txt are taken, add more ports or close some sessions!\n")
+		os.Exit(1)
+	}
+
 	listener, _ := net.Listen("tcp", "localhost:"+myPort)
 	fmt.Printf("Port: %s|State: %s|Term: %d\n", myPort, state, term)
 
