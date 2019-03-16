@@ -191,8 +191,8 @@ func handleMessage(message string, conn net.Conn) {
 		setState(msgTerm, "follower")
 	}
 
-	if (term > msgTerm) { // If our term is newer than the leader's, tell them they are behind.
-		fmt.Printf("%d\tLeader %s is behind terms. Telling the leader they are behind.\n", term, id)
+	if (term > msgTerm) { // If our term is newer than the message sender's, tell them they are behind.
+		fmt.Printf("%d\t%s is behind terms. Telling them they are behind.\n", term, id)
 		conn.SetWriteDeadline(time.Now().Add(1 * time.Second))
 		conn.Write([]byte("YouAreBehind|" + strconv.Itoa(term) + "|"+ myPort))
 		conn.Close()
@@ -228,6 +228,7 @@ func handleMessage(message string, conn net.Conn) {
 		}
 		if ((directive == "leaderHeartbeat")){
 			setState(msgTerm, "follower")
+			resetElectionTimeout()
 		}
 	}
 }
