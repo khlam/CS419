@@ -4,7 +4,7 @@ Membership and log replication are not implemented.
 Running the system will start a local leader election between all active nodes.
 If the leader node's session is terminated, all alive nodes will start a new election.
 The amount of nodes is set in [`memberList.txt`](./memberList.txt).
-Default there are 4 nodes.
+Default there are 5 nodes.
 
 ## Run
 1. Membership is statically held in [`memberList.txt`](./memberList.txt).
