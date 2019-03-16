@@ -283,3 +283,4 @@ func main() {
 		go handleConnection(conn)
 	}
 }
+// Kin-Ho Lam | 3/16/19 | CS 419 | Raft leader election with Go
