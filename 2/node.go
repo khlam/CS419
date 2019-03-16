@@ -18,7 +18,7 @@ var state string = "follower"
 var term int = 0
 var votesForMe = 0
 var votedFor string = ""
-var totalAlive = 0
+var totalAlive = 1 // Init to 1 because we are alive
 
 var timer *time.Timer = time.NewTimer(time.Duration(30 + rand.Intn(60-30+1)) * time.Second)
 
@@ -78,7 +78,7 @@ func handleMessage(message string, conn net.Conn) {
 		term = msgTerm
 		votesForMe = 0
 		votedFor = ""
-		totalAlive = 0
+		totalAlive = 1
 		fmt.Printf("Port: %s|State: %s|Term: %d\n", myPort, state, term)
 	}
 
@@ -89,7 +89,7 @@ func handleMessage(message string, conn net.Conn) {
 			fmt.Printf("\tLeader: %s\tTerm: %d\n", id, term)
 		}
 
-		if ((directive == "RequestVote") && (votedFor == "") && (term == msgTerm)) {
+		if ((directive == "RequestVote") && (votedFor == "") && (term <= msgTerm)) {
 			resetElectionTimeout()
 			votedFor = id
 			conn, _ := net.Dial("tcp", "localhost:"+id)
@@ -108,12 +108,23 @@ func handleMessage(message string, conn net.Conn) {
 				state = "leader"
 			}
 		}
+		if ((directive == "RequestVote") && (msgTerm > term)) {
+			fmt.Printf("\t%s I am not the latest term, cancelling my election.\n", id)
+			state = "follower"
+			term = msgTerm
+			votedFor = id
+			conn, _ := net.Dial("tcp", "localhost:"+id)
+			fmt.Printf("\tI voted for %s\n", id)
+			conn.SetWriteDeadline(time.Now().Add(1 * time.Second))
+			conn.Write([]byte("VoteForX|" + strconv.Itoa(term) + "|"+ myPort))
+			conn.Close()
+		}
 		if ((directive == "leaderHeartbeat") && (term == msgTerm)){
 			state = "follower"
 			term = msgTerm
 			votesForMe = 0
 			votedFor = ""
-			totalAlive = 0
+			totalAlive = 1
 			fmt.Printf("Port: %s|State: %s|Term: %d\n", myPort, state, term)
 		}
 	}
@@ -149,44 +160,53 @@ func candidateRoutine() {
 			votedFor = myPort // I vote for myself
 			term = term + 1
 			fmt.Printf("\tVoting for myself.\n")
-			for _, port := range memberList {
-				var addr = "localhost:" + port
-				conn, err := net.DialTimeout("tcp", addr, 1 * time.Second)
-				if err != nil {
-					fmt.Printf("\t%s unreachable\n", addr)
-				}else {
-					totalAlive = totalAlive + 1
-					fmt.Printf("\tSent vote request to %s\n", addr)
-					conn.SetWriteDeadline(time.Now().Add(1 * time.Second))
-					conn.Write([]byte("RequestVote|" + strconv.Itoa(term) + "|"+ myPort))
-					conn.Close()
-				}
-			}
-
-			select {
-				case <-timer.C:
-					fmt.Println("Election timer expired.")
-					if (didMajorityVoteForMe()) {
-						state = "leader"
+			for (state == "candidate") {
+				for _, port := range memberList {
+					var addr = "localhost:" + port
+					conn, err := net.DialTimeout("tcp", addr, 1 * time.Second)
+					if err != nil {
+						fmt.Printf("\t%s unreachable\n", addr)
 					}else {
-						term = term + 1
-						state = "candidate"
-						votesForMe = 0
-						votedFor = ""
-						totalAlive = 0
+						totalAlive = totalAlive + 1
+						fmt.Printf("\tSent vote request to %s\n", addr)
+						conn.SetWriteDeadline(time.Now().Add(1 * time.Second))
+						conn.Write([]byte("RequestVote|" + strconv.Itoa(term) + "|"+ myPort))
+						conn.Close()
 					}
+				}
+				var votePause time.Duration = time.Duration(rand.Intn(1)+3) * time.Second
+				time.Sleep(votePause)
+				select {
+					case <-timer.C:
+						fmt.Println("Election timer expired.")
+						if (didMajorityVoteForMe()) {
+							state = "leader"
+							break
+						}else {
+							resetElectionTimeout()
+							term = term + 1
+							state = "candidate"
+							votesForMe = 0
+							votedFor = ""
+							totalAlive = 1
+							break
+						}
+					default:
+				}
 			}
 		}
 	}
 }
 
 func didMajorityVoteForMe() bool{
-	if ((state == "candidate") && (totalAlive != 0)) {
-		var majority int = (totalAlive / 2) + 1
+	if ((state == "candidate")) {
+		var majority int = ((len(memberList) + 1) / 2) + 1
 		if (votesForMe == majority) {
-			fmt.Printf("%d/%d nodes voted for me. I am the leader.\n", votesForMe, totalAlive)
+			fmt.Printf("%d/%d nodes voted for me. I am the leader.\n", votesForMe, len(memberList) + 1)
 			return true
 		}
+	}else {
+		fmt.Printf("%d nodes alive.\n", totalAlive)
 	}
 	return false
 }
