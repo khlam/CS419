@@ -55,8 +55,6 @@ func determineMembership() (string, []string) {
 }
 
 func handleConnection(conn net.Conn) {
-	//remoteAddr := conn.RemoteAddr().String()
-	//fmt.Println("Client connected from " + remoteAddr)
 	scanner := bufio.NewScanner(conn)
 	for {
 		ok := scanner.Scan()
@@ -65,7 +63,6 @@ func handleConnection(conn net.Conn) {
 		}
 		handleMessage(scanner.Text(), conn)
 	}
-	//fmt.Println("Client at " + remoteAddr + " disconnected.")
 }
 
 func handleMessage(message string, conn net.Conn) {
@@ -84,6 +81,7 @@ func handleMessage(message string, conn net.Conn) {
 		totalAlive = 0
 		fmt.Printf("Port: %s|State: %s|Term: %d\n", myPort, state, term)
 	}
+
 	if (state == "follower") {
 
 		if (directive == "leaderHeartbeat") {
@@ -106,10 +104,17 @@ func handleMessage(message string, conn net.Conn) {
 		if ((directive == "VoteForX") && (msgTerm == term)) {
 			fmt.Printf("\t%s Voted for me.\n", id)
 			votesForMe = votesForMe + 1
-			if (len(memberList) == votesForMe) {
+			if (didMajorityVoteForMe()) {
 				state = "leader"
-				fmt.Printf("%d/%d nodes voted for me. I am the leader.\n", votesForMe, totalAlive)
 			}
+		}
+		if ((directive == "leaderHeartbeat") && (term < msgTerm)){
+			state = "follower"
+			term = msgTerm
+			votesForMe = 0
+			votedFor = ""
+			totalAlive = 0
+			fmt.Printf("Port: %s|State: %s|Term: %d\n", myPort, state, term)
 		}
 	}
 }
@@ -161,9 +166,8 @@ func candidateRoutine() {
 			select {
 				case <-timer.C:
 					fmt.Println("Election timer expired.")
-					if ((votesForMe >= totalAlive) && (totalAlive != 0)) {
+					if (didMajorityVoteForMe()) {
 						state = "leader"
-						fmt.Printf("%d/%d nodes voted for me. I am the leader.\n", votesForMe, totalAlive)
 					}else {
 						term = term + 1
 						state = "candidate"
@@ -174,6 +178,17 @@ func candidateRoutine() {
 			}
 		}
 	}
+}
+
+func didMajorityVoteForMe() bool{
+	if ((state == "candidate") && (totalAlive != 0)) {
+		var majority int = (totalAlive / 2) + 1
+		if (votesForMe == majority) {
+			fmt.Printf("%d/%d nodes voted for me. I am the leader.\n", votesForMe, totalAlive)
+			return true
+		}
+	}
+	return false
 }
 
 func leaderHeartbeat(){
@@ -204,9 +219,9 @@ func leaderHeartbeat(){
 
 func main() {
 	myPort, memberList = determineMembership()
-
 	listener, _ := net.Listen("tcp", "localhost:"+myPort)
 	fmt.Printf("Port: %s|State: %s|Term: %d\n", myPort, state, term)
+
 	go followerRoutine()
 	go candidateRoutine()
 	go leaderHeartbeat()
