@@ -18,9 +18,19 @@ var state string = "follower"
 var term int = 0
 var votesForMe = 0
 var votedFor string = ""
-var totalAlive = 1 // Init to 1 because we are alive
 
-var timer *time.Timer = time.NewTimer(time.Duration(30 + rand.Intn(60-30+1)) * time.Second)
+var timer *time.Timer = time.NewTimer(time.Duration(15 + rand.Intn(30-15+1)) * time.Second)
+
+func handleConnection(conn net.Conn) {
+	scanner := bufio.NewScanner(conn)
+	for {
+		ok := scanner.Scan()
+		if !ok {
+			break
+		}
+		handleMessage(scanner.Text(), conn)
+	}
+}
 
 // Removes item at index i from an array and returns the array
 func remove(s []string, i int) []string {
@@ -54,107 +64,20 @@ func determineMembership() (string, []string) {
 	return myPort, members						  // Return the address we're using and the rest of the members
 }
 
-func handleConnection(conn net.Conn) {
-	scanner := bufio.NewScanner(conn)
-	for {
-		ok := scanner.Scan()
-		if !ok {
-			break
-		}
-		handleMessage(scanner.Text(), conn)
-	}
-}
-
-func handleMessage(message string, conn net.Conn) {
-	msg := strings.Split(message, "|")
-	var directive string = msg[0]
-	var msgTerm int
-	msgTerm, _ = strconv.Atoi(msg[1])
-	var id string = msg[2]
-	
-	fmt.Printf("> %s, TERM: %d, SENDER: %s\n", directive, term, id)
-	if (term < msgTerm) {
-		state = "follower"
-		term = msgTerm
-		votesForMe = 0
-		votedFor = ""
-		totalAlive = 1
-		fmt.Printf("Port: %s|State: %s|Term: %d\n", myPort, state, term)
-	}
-
-	if (state == "follower") {
-
-		if (directive == "leaderHeartbeat") {
-			
-			fmt.Printf("\tLeader: %s\tTerm: %d\n", id, term)
-			if (msgTerm < term) {
-				fmt.Printf("\tTerm correction. Leader is behind terms. %s\n", id)
-				conn.SetWriteDeadline(time.Now().Add(1 * time.Second))
-				conn.Write([]byte("termCorrection|" + strconv.Itoa(term) + "|"+ myPort))
-				conn.Close()
-			}else {
-				resetElectionTimeout()
-			}
-		}
-
-		if ((directive == "RequestVote") && (votedFor == "") && (term <= msgTerm)) {
-			resetElectionTimeout()
-			votedFor = id
-			conn, _ := net.Dial("tcp", "localhost:"+id)
-			fmt.Printf("\tI voted for %s\n", id)
-			conn.SetWriteDeadline(time.Now().Add(1 * time.Second))
-			conn.Write([]byte("VoteForX|" + strconv.Itoa(term) + "|"+ myPort))
-			conn.Close()
-		}
-	}
-
-	if (state == "candidate") {
-		if ((directive == "VoteForX") && (msgTerm == term)) {
-			fmt.Printf("\t%s Voted for me.\n", id)
-			votesForMe = votesForMe + 1
-			if (didMajorityVoteForMe()) {
-				state = "leader"
-			}
-		}
-		if ((directive == "RequestVote") && (msgTerm > term)) {
-			fmt.Printf("\t%s I am not the latest term, cancelling my election.\n", id)
-			state = "follower"
-			term = msgTerm
-			votedFor = id
-			conn, _ := net.Dial("tcp", "localhost:"+id)
-			fmt.Printf("\tI voted for %s\n", id)
-			conn.SetWriteDeadline(time.Now().Add(1 * time.Second))
-			conn.Write([]byte("VoteForX|" + strconv.Itoa(term) + "|"+ myPort))
-			conn.Close()
-		}
-		if ((directive == "leaderHeartbeat") && (term == msgTerm)){
-			state = "follower"
-			term = msgTerm
-			votesForMe = 0
-			votedFor = ""
-			totalAlive = 1
-			fmt.Printf("Port: %s|State: %s|Term: %d\n", myPort, state, term)
-		}
-	}
-
-	if (state == "leader") {
-		if ((term < msgTerm)){
-			fmt.Printf("\t%s has a term correction. Starting new election.\n", id)
-			state = "follower"
-			term = msgTerm
-			votesForMe = 0
-			votedFor = ""
-			totalAlive = 1
-			timer = time.NewTimer(time.Duration(30 + rand.Intn(60-30+1)) * time.Second)
-			resetElectionTimeout()
-		}
-	}
+// Resets the state of a node
+func setState(newTerm int, newState string) {
+	fmt.Printf("\nNAME: %s\tSTATE: %s\n", myPort, newState)
+	fmt.Printf("Term\tAction\n")
+	state = newState
+	term = newTerm
+	votesForMe = 0
+	votedFor = ""
 }
 
 func resetElectionTimeout() (int){
 	rand.Seed(time.Now().UnixNano())
 	var electionTimeout int = 15 + rand.Intn(30-15+1)
-	fmt.Println("\tElection timeout reset to ",electionTimeout, " seconds.")
+	fmt.Printf("%d\tElection timeout reset to %s seconds.\t\n", term, strconv.Itoa(electionTimeout))
 	timer.Reset(time.Duration(electionTimeout) * time.Second)
 	return electionTimeout
 }
@@ -165,8 +88,8 @@ func followerRoutine() {
 			var electionTimeout = resetElectionTimeout()
 			select {
 				case <-timer.C:
-					fmt.Println("Did not hear heartbeat from leader for ", electionTimeout, ". Starting election.")
-					state = "candidate"
+					fmt.Printf("%d\tDid not hear heartbeat from leader for %s seconds. Becoming a candidate.\n", term, strconv.Itoa(electionTimeout))
+					setState(term, "candidate")
 			}
 		}
 	}
@@ -175,23 +98,27 @@ func followerRoutine() {
 func candidateRoutine() {
 	for true {
 		if (state == "candidate") {
-			resetElectionTimeout()
-			totalAlive = 1 // I am alive
 			votesForMe = 1 // I vote for myself
 			votedFor = myPort // I vote for myself
-			term = term + 1
-			fmt.Printf("\tVoting for myself.\n")
+			term = term + 1   // New election new term
+			fmt.Printf("%d\tStarting new election. Voting for myself.\n", term)
+			resetElectionTimeout()
+
+			// While we are a candidate keep sending vote requests until the timer expires or we become the leader
 			for (state == "candidate") {
 				for _, port := range memberList {
+					if (didMajorityVoteForMe()) {
+						setState(term, "leader")
+						break
+					}
 					var addr = "localhost:" + port
 					conn, err := net.DialTimeout("tcp", addr, 1 * time.Second)
 					if err != nil {
-						fmt.Printf("\t%s unreachable\n", addr)
+						//fmt.Printf("\t\t%s unreachable\n", addr)
 					}else {
-						totalAlive = totalAlive + 1
-						fmt.Printf("\tSent vote request to %s\n", addr)
+						fmt.Printf("%d\tTelling %s to vote for me.\n", term, addr)
 						conn.SetWriteDeadline(time.Now().Add(1 * time.Second))
-						conn.Write([]byte("RequestVote|" + strconv.Itoa(term) + "|"+ myPort))
+						conn.Write([]byte("VoteForMe|" + strconv.Itoa(term) + "|"+ myPort))
 						conn.Close()
 					}
 				}
@@ -199,17 +126,14 @@ func candidateRoutine() {
 				time.Sleep(votePause)
 				select {
 					case <-timer.C:
-						fmt.Println("Election timer expired.")
-						if (didMajorityVoteForMe()) {
-							state = "leader"
+						fmt.Printf("%d\tElection Timer expired.\n", term)
+						if (didMajorityVoteForMe()) { // Majority voted for me at the end of the term
+							setState(term, "leader")
 							break
-						}else {
+						}else { // At this point, no leader has been elected, start a new election
+							fmt.Printf("%d\tNo leader was elected. Starting a new election.\n", term)
 							resetElectionTimeout()
-							term = term + 1
-							state = "candidate"
-							votesForMe = 0
-							votedFor = ""
-							totalAlive = 1
+							setState(term + 1, "candidate")
 							break
 						}
 					default:
@@ -219,25 +143,10 @@ func candidateRoutine() {
 	}
 }
 
-func didMajorityVoteForMe() bool{
-	if ((state == "candidate")) {
-		var majority int = ((len(memberList) + 1) / 2) + 1
-		if (votesForMe == majority) {
-			fmt.Printf("%d/%d nodes voted for me. I am the leader.\n", votesForMe, len(memberList) + 1)
-			return true
-		}
-	}else {
-		fmt.Printf("%d nodes alive.\n", totalAlive)
-	}
-	return false
-}
-
 func leaderHeartbeat(){
 	for true {
 		if (state == "leader") {
 			timer.Stop()
-			var heartbeatPause time.Duration = time.Duration(rand.Intn(1)+3) * time.Second
-			time.Sleep(heartbeatPause)
 			for _, port := range memberList {
 				var addr = "localhost:" + port
 				conn, err := net.DialTimeout("tcp", addr, 1 * time.Second)
@@ -245,32 +154,97 @@ func leaderHeartbeat(){
 				if err != nil {
 					//fmt.Printf("\t%s not responding\n", port)
 				}else {
-					fmt.Printf("\tSending heartbeat to %s\n", port)
+					fmt.Printf("%d\tSending heartbeat to %s\n", term, port)
 					conn.SetWriteDeadline(time.Now().Add(1 * time.Second))
 					conn.Write([]byte("leaderHeartbeat|" + strconv.Itoa(term) + "|"+ myPort))
 					conn.Close()
 				}
 			}
+			var heartbeatPause time.Duration = time.Duration(rand.Intn(1)+3) * time.Second
+			time.Sleep(heartbeatPause)
 		}
 	}
 }
 
+func didMajorityVoteForMe() bool{
+	if ((state == "candidate")) {
+		var majority int = ((len(memberList) + 1) / 2) + 1
+		if (votesForMe == majority) {
+			fmt.Printf("%d\t%d/%d nodes voted for me. I am now the leader.\n", term, votesForMe, len(memberList) + 1)
+			return true
+		}
+	}
+	return false
+}
+
+func handleMessage(message string, conn net.Conn) {
+	msg := strings.Split(message, "|")
+	var directive string = msg[0]
+	var msgTerm int
+	msgTerm, _ = strconv.Atoi(msg[1])
+	var id string = msg[2]
+	
+	fmt.Printf("> %s: %s, TERM: %d\n", id, directive, msgTerm)
+	// If our term is less than the message term, then reset our state to a follower because we are behind
+	if (term < msgTerm) {
+		fmt.Printf("\tTerm correction. %s has a higher term. \n", id)
+		setState(msgTerm, "follower")
+	}
+
+	if (term > msgTerm) { // If our term is newer than the leader's, tell them they are behind.
+		fmt.Printf("%d\tLeader %s is behind terms. Telling the leader they are behind.\n", term, id)
+		conn.SetWriteDeadline(time.Now().Add(1 * time.Second))
+		conn.Write([]byte("YouAreBehind|" + strconv.Itoa(term) + "|"+ myPort))
+		conn.Close()
+	}
+
+	if (state == "follower") {
+		if (directive == "leaderHeartbeat") { // If we hear the leader's heartbeat
+			fmt.Printf("%d\tReceived Leader %s heartbeat. Current network term is %d.\n", term, id, msgTerm)
+			if (term == msgTerm) {
+				resetElectionTimeout() // Otherwise, reset our election timeout
+			}
+		}
+
+		if ((directive == "VoteForMe") && (votedFor == "")) { // If someone tells us to vote for them and we haven't voted yet then vote for them
+			resetElectionTimeout()
+			term = msgTerm
+			votedFor = id
+			conn, _ := net.Dial("tcp", "localhost:"+id)
+			fmt.Printf("%d\tReceived vote request. I voted for %s\n", term, id)
+			conn.SetWriteDeadline(time.Now().Add(1 * time.Second))
+			conn.Write([]byte("IVoteForYou|" + strconv.Itoa(term) + "|"+ myPort))
+			conn.Close()
+		}
+	}
+
+	if (state == "candidate") {
+		if ((directive == "IVoteForYou") && (msgTerm == term)) {
+			fmt.Printf("%d\t%s Voted for me.\n", term, id)
+			votesForMe = votesForMe + 1
+			if (didMajorityVoteForMe()) {
+				setState(msgTerm, "leader")
+			}
+		}
+		if ((directive == "leaderHeartbeat")){
+			setState(msgTerm, "follower")
+		}
+	}
+}
 
 func main() {
 	myPort, memberList = determineMembership()
 
 	if (myPort == "") {
-		fmt.Printf("All ports in memberList.txt are taken, add more ports or close some sessions!\n")
+		fmt.Printf("All ports in memberList.txt are in use, add more ports or close some sessions!\n")
 		os.Exit(1)
 	}
 
 	listener, _ := net.Listen("tcp", "localhost:"+myPort)
-	fmt.Printf("Port: %s|State: %s|Term: %d\n", myPort, state, term)
-
+	setState(term, "follower")
 	go followerRoutine()
 	go candidateRoutine()
 	go leaderHeartbeat()
-
 
 	defer listener.Close()
 
