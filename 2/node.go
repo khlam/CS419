@@ -85,8 +85,16 @@ func handleMessage(message string, conn net.Conn) {
 	if (state == "follower") {
 
 		if (directive == "leaderHeartbeat") {
-			resetElectionTimeout()
+			
 			fmt.Printf("\tLeader: %s\tTerm: %d\n", id, term)
+			if (msgTerm < term) {
+				fmt.Printf("\tTerm correction. Leader is behind terms. %s\n", id)
+				conn.SetWriteDeadline(time.Now().Add(1 * time.Second))
+				conn.Write([]byte("termCorrection|" + strconv.Itoa(term) + "|"+ myPort))
+				conn.Close()
+			}else {
+				resetElectionTimeout()
+			}
 		}
 
 		if ((directive == "RequestVote") && (votedFor == "") && (term <= msgTerm)) {
@@ -126,6 +134,19 @@ func handleMessage(message string, conn net.Conn) {
 			votedFor = ""
 			totalAlive = 1
 			fmt.Printf("Port: %s|State: %s|Term: %d\n", myPort, state, term)
+		}
+	}
+
+	if (state == "leader") {
+		if ((term < msgTerm)){
+			fmt.Printf("\t%s has a term correction. Starting new election.\n", id)
+			state = "follower"
+			term = msgTerm
+			votesForMe = 0
+			votedFor = ""
+			totalAlive = 1
+			timer = time.NewTimer(time.Duration(30 + rand.Intn(60-30+1)) * time.Second)
+			resetElectionTimeout()
 		}
 	}
 }
@@ -215,27 +236,25 @@ func leaderHeartbeat(){
 	for true {
 		if (state == "leader") {
 			timer.Stop()
-			for true{
-				var heartbeatPause time.Duration = time.Duration(rand.Intn(1)+3) * time.Second
-				//fmt.Println("\tTimeout ",electionTimeout)
-				time.Sleep(heartbeatPause)
-				for _, port := range memberList {
-					var addr = "localhost:" + port
-					conn, err := net.DialTimeout("tcp", addr, 1 * time.Second)
-		
-					if err != nil {
-						//fmt.Printf("\t%s not responding\n", port)
-					}else {
-						fmt.Printf("\tSending heartbeat to %s\n", port)
-						conn.SetWriteDeadline(time.Now().Add(1 * time.Second))
-						conn.Write([]byte("leaderHeartbeat|" + strconv.Itoa(term) + "|"+ myPort))
-						conn.Close()
-					}
+			var heartbeatPause time.Duration = time.Duration(rand.Intn(1)+3) * time.Second
+			time.Sleep(heartbeatPause)
+			for _, port := range memberList {
+				var addr = "localhost:" + port
+				conn, err := net.DialTimeout("tcp", addr, 1 * time.Second)
+	
+				if err != nil {
+					//fmt.Printf("\t%s not responding\n", port)
+				}else {
+					fmt.Printf("\tSending heartbeat to %s\n", port)
+					conn.SetWriteDeadline(time.Now().Add(1 * time.Second))
+					conn.Write([]byte("leaderHeartbeat|" + strconv.Itoa(term) + "|"+ myPort))
+					conn.Close()
 				}
 			}
 		}
 	}
 }
+
 
 func main() {
 	myPort, memberList = determineMembership()
