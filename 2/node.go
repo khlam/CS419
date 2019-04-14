@@ -84,89 +84,83 @@ func resetElectionTimeout() (int){
 }
 
 func followerRoutine() {
-	for true {
-		if (state == "follower"){
-			electionTimeout = resetElectionTimeout()
-			select {
-				case <-timer.C:
-					fmt.Printf("%d\tDid not hear heartbeat from leader for %s seconds. Becoming a candidate.\n", term, strconv.Itoa(electionTimeout))
-					setState(term, "candidate")
-			}
+	if (state == "follower"){
+		electionTimeout = resetElectionTimeout()
+		select {
+			case <-timer.C:
+				fmt.Printf("%d\tDid not hear heartbeat from leader for %s seconds. Becoming a candidate.\n", term, strconv.Itoa(electionTimeout))
+				setState(term, "candidate")
 		}
 	}
 }
 
 func candidateRoutine() {
-	for true {
-		if (state == "candidate") {
-			var sendVoteRequest bool = true
-			votesForMe = 1 // I vote for myself
-			votedFor = myPort // I vote for myself
-			term = term + 1   // New election new term
-			fmt.Printf("%d\tStarting new election. Voting for myself.\n", term)
-			electionTimeout = resetElectionTimeout()
+	if (state == "candidate") {
+		var sendVoteRequest bool = true
+		votesForMe = 1 // I vote for myself
+		votedFor = myPort // I vote for myself
+		term = term + 1   // New election new term
+		fmt.Printf("%d\tStarting new election. Voting for myself.\n", term)
+		electionTimeout = resetElectionTimeout()
 
-			// While we are a candidate keep sending vote requests until the timer expires or we become the leader
-			for (sendVoteRequest && (state == "candidate")) {
-				for _, port := range memberList {
-					var addr = "localhost:" + port
-					conn, err := net.DialTimeout("tcp", addr, 1 * time.Second)
-					if err != nil {
-						//fmt.Printf("\t\t%s unreachable\n", addr)
-					}else {
-						fmt.Printf("%d\tTelling %s to vote for me.\n", term, addr)
-						conn.SetWriteDeadline(time.Now().Add(1 * time.Second))
-						conn.Write([]byte("VoteForMe|" + strconv.Itoa(term) + "|"+ myPort))
-						conn.Close()
-						if (didMajorityVoteForMe()) {
-							setState(term, "leader")
-							break
-						}
+		// While we are a candidate keep sending vote requests until the timer expires or we become the leader
+		for (sendVoteRequest && (state == "candidate")) {
+			for _, port := range memberList {
+				var addr = "localhost:" + port
+				conn, err := net.DialTimeout("tcp", addr, 1 * time.Second)
+				if err != nil {
+					//fmt.Printf("\t\t%s unreachable\n", addr)
+				}else {
+					fmt.Printf("%d\tTelling %s to vote for me.\n", term, addr)
+					conn.SetWriteDeadline(time.Now().Add(1 * time.Second))
+					conn.Write([]byte("VoteForMe|" + strconv.Itoa(term) + "|"+ myPort))
+					conn.Close()
+					if (didMajorityVoteForMe()) {
+						setState(term, "leader")
+						break
 					}
 				}
-				var votePause time.Duration = time.Duration(rand.Intn(1)+3) * time.Second
-				time.Sleep(votePause)
-				select {
-					case <-timer.C:
-						fmt.Printf("%d\tElection Timer expired.\n", term)
-						if (didMajorityVoteForMe()) { // Majority voted for me at the end of the term
-							setState(term, "leader")
-							sendVoteRequest = false
-							break
-						}else { // At this point, no leader has been elected, start a new election
-							fmt.Printf("%d\tNo leader was elected. Becoming candidate again.\n", term)
-							setState(term, "candidate")
-							sendVoteRequest = false // Break out of the send vote request loop to reset election
-							break
-						}
-					default:
-				}
 			}
-
+			var votePause time.Duration = time.Duration(rand.Intn(1)+3) * time.Second
+			time.Sleep(votePause)
+			select {
+				case <-timer.C:
+					fmt.Printf("%d\tElection Timer expired.\n", term)
+					if (didMajorityVoteForMe()) { // Majority voted for me at the end of the term
+						setState(term, "leader")
+						sendVoteRequest = false
+						break
+					}else { // At this point, no leader has been elected, start a new election
+						fmt.Printf("%d\tNo leader was elected. Becoming candidate again.\n", term)
+						setState(term, "candidate")
+						sendVoteRequest = false // Break out of the send vote request loop to reset election
+						break
+					}
+				default:
+			}
 		}
+
 	}
 }
 
 func leaderHeartbeat(){
-	for true {
-		if (state == "leader") {
-			timer.Stop()
-			for _, port := range memberList {
-				var addr = "localhost:" + port
-				conn, err := net.DialTimeout("tcp", addr, 1 * time.Second)
-	
-				if err != nil {
-					//fmt.Printf("\t%s not responding\n", port)
-				}else {
-					fmt.Printf("%d\tSent heartbeat to %s.\n", term, port)
-					conn.SetWriteDeadline(time.Now().Add(1 * time.Second))
-					conn.Write([]byte("leaderHeartbeat|" + strconv.Itoa(term) + "|"+ myPort))
-					conn.Close()
-				}
+	if (state == "leader") {
+		timer.Stop()
+		for _, port := range memberList {
+			var addr = "localhost:" + port
+			conn, err := net.DialTimeout("tcp", addr, 1 * time.Second)
+
+			if err != nil {
+				//fmt.Printf("\t%s not responding\n", port)
+			}else {
+				fmt.Printf("%d\tSent heartbeat to %s.\n", term, port)
+				conn.SetWriteDeadline(time.Now().Add(1 * time.Second))
+				conn.Write([]byte("leaderHeartbeat|" + strconv.Itoa(term) + "|"+ myPort))
+				conn.Close()
 			}
-			var heartbeatPause time.Duration = time.Duration(rand.Intn(1)+3) * time.Second
-			time.Sleep(heartbeatPause)
 		}
+		var heartbeatPause time.Duration = time.Duration(rand.Intn(1)+3) * time.Second
+		time.Sleep(heartbeatPause)
 	}
 }
 
@@ -242,6 +236,14 @@ func handleMessage(message string, conn net.Conn) {
 	}
 }
 
+func allRoutines() {
+	for true {
+		followerRoutine()
+		candidateRoutine()
+		leaderHeartbeat()
+	}
+}
+
 func main() {
 	myPort, memberList = determineMembership()
 
@@ -253,9 +255,7 @@ func main() {
 
 	setState(term, "follower") // Init to follower
 
-	go followerRoutine()
-	go candidateRoutine()
-	go leaderHeartbeat()
+	go allRoutines()
 
 	defer listener.Close()
 
